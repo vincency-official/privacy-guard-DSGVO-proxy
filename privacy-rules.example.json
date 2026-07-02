@@ -1,0 +1,18 @@
+{
+  "rules": [
+    { "match": "Max Mustermann", "type": "PERSON" },
+    { "match": "Erika Musterfrau", "type": "PERSON" },
+    { "match": "Musterfirma GmbH", "type": "ORG" }
+  ],
+  "detectors": {
+    "email": true,
+    "iban": true,
+    "creditCard": true,
+    "ipAddress": true,
+    "secrets": true
+  },
+  "server": {
+    "port": 8080,
+    "dashboardPort": 8081
+  }
+}

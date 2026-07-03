@@ -44,16 +44,23 @@ export interface ProxyDeps {
   originOverride?: (provider: Provider) => string;
 }
 
-// Request-Header, die niemals unverändert an den Upstream gehen dürfen. `host`
-// gehört zur Proxy-Verbindung; `content-length` wird nach der Bereinigung neu
-// berechnet; `accept-encoding` wird auf `identity` gezwungen, damit die Antwort
-// unkomprimiert ankommt und ohne gzip-Dekodierung re-identifiziert werden kann.
-// `connection` ist hop-by-hop und gehört nicht weitergereicht.
-const ZU_ENTFERNENDE_HEADER = new Set([
-  'host',
-  'content-length',
-  'accept-encoding',
-  'connection',
+// Allowlist der Header, die an den Upstream weitergereicht werden. Alles andere
+// wird verworfen — so gelangen weder hop-by-hop-Header (connection, keep-alive,
+// te, trailer, transfer-encoding, upgrade, proxy-connection) noch beliebige interne
+// Client-Header (z. B. Cookie, X-Internal-*) an die US-Provider. `host`,
+// `content-length` und `accept-encoding` werden separat/nachträglich gesetzt und
+// stehen deshalb bewusst nicht in der Liste.
+const UPSTREAM_ALLOWLIST = new Set([
+  'authorization', // OpenAI-Bearer-Key
+  'x-api-key', // Anthropic-Key
+  'anthropic-version', // Anthropic Pflicht-Header
+  'anthropic-beta', // Anthropic Beta-Features
+  'openai-organization', // OpenAI optionale Org-Zuordnung
+  'openai-project', // OpenAI optionale Projekt-Zuordnung
+  'openai-beta', // OpenAI Beta-Features (z. B. Assistants)
+  'content-type',
+  'accept',
+  'user-agent',
 ]);
 
 // Erzeugt den Proxy-HTTP-Server. Die Netzwerk-Bindung (listen auf 127.0.0.1)
@@ -275,7 +282,8 @@ function baueUpstreamHeader(
     if (wert === undefined) {
       continue;
     }
-    if (ZU_ENTFERNENDE_HEADER.has(name.toLowerCase())) {
+    // Nur ausdrücklich erlaubte Header weiterreichen; alles andere verwerfen.
+    if (!UPSTREAM_ALLOWLIST.has(name.toLowerCase())) {
       continue;
     }
     // Mehrfach-Header (Array) zu einem Komma-getrennten Wert zusammenführen.

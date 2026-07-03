@@ -39,6 +39,7 @@ let mockUpstream: Server;
 let mockOrigin: string;
 let empfangenerBody: string;
 let empfangeneAuth: string | undefined;
+let empfangeneHeaders: import('node:http').IncomingHttpHeaders;
 let proxy: Server;
 let proxyBasis: string;
 let tempDir: string;
@@ -55,6 +56,7 @@ beforeEach(async () => {
   mockUpstream = createServer(async (req, res) => {
     empfangenerBody = await leseBody(req);
     empfangeneAuth = req.headers['authorization'] as string | undefined;
+    empfangeneHeaders = req.headers;
     const userText = (JSON.parse(empfangenerBody).messages[0].content) as string;
 
     if ((req.url ?? '').includes('stream')) {
@@ -131,6 +133,22 @@ describe('End-to-End Roundtrip', () => {
 
     // Upstream sah nur das Token.
     expect(empfangenerBody).toContain('[PERSON_1]');
+  });
+
+  test('reicht nur erlaubte Header an den Upstream weiter (Allowlist)', async () => {
+    await fetch(`${proxyBasis}/openai/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer sk-test-123',
+        'x-internal-secret': 'streng-geheim',
+      },
+      body: CLIENT_BODY,
+    });
+    // Erlaubter Auth-Header erreicht den Upstream ...
+    expect(empfangeneHeaders['authorization']).toBe('Bearer sk-test-123');
+    // ... ein beliebiger interner Client-Header wird verworfen.
+    expect(empfangeneHeaders['x-internal-secret']).toBeUndefined();
   });
 
   test('Pass-Through: bei deaktiviertem Schutz sieht der Upstream den Klartext', async () => {

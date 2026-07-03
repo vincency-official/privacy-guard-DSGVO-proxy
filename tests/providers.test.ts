@@ -79,27 +79,96 @@ describe('transformTexts', () => {
     expect(sys[1].text).toBe('REGEL ZWEI');
   });
 
-  it('rührt das system-Feld bei OpenAI NICHT als Extrafeld an', () => {
-    // Bei OpenAI wird nur messages[].content transformiert; ein etwaiges
-    // Top-Level-system-Feld ist kein OpenAI-Konzept und bleibt unangetastet.
+  it('erfasst fail-safe auch ein Top-Level-system-Feld bei OpenAI', () => {
+    // Fail-safe: JEDES String-Feld wird bereinigt, auch providerfremde wie ein
+    // Top-Level-system bei OpenAI — sonst könnte dort PII unbemerkt durchrutschen.
     const body = {
-      system: 'unangetastet',
+      system: 'enthält Max',
       messages: [{ role: 'user', content: 'Hallo' }],
     };
 
     transformTexts(body, 'openai', (t) => t.toUpperCase());
 
-    expect(body.system).toBe('unangetastet');
+    expect(body.system).toBe('ENTHÄLT MAX');
     expect(body.messages[0].content).toBe('HALLO');
   });
 
-  it('lässt unbekannte oder fehlende Felder unangetastet', () => {
-    // Kein messages-Feld, nur Fremdfelder: nichts darf sich ändern und es darf
-    // nicht werfen.
-    const body = { irgendwas: 42, tief: { x: 'y' } };
+  it('bereinigt fail-safe auch Strings in unbekannten/verschachtelten Feldern', () => {
+    // Zahlen und Struktur bleiben; unbekannte String-Felder werden erfasst, statt
+    // ungefiltert durchzurutschen.
+    const body = { irgendwas: 42, tief: { x: 'geheim' } };
 
     expect(() => transformTexts(body, 'openai', (t) => t.toUpperCase())).not.toThrow();
-    expect(body).toEqual({ irgendwas: 42, tief: { x: 'y' } });
+    expect(body.irgendwas).toBe(42);
+    expect(body.tief.x).toBe('GEHEIM');
+  });
+
+  it('bereinigt OpenAI tool_calls[].function.arguments (JSON-String); Name/ID/Typ bleiben', () => {
+    const body = {
+      messages: [
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'suche', arguments: '{"ort":"Berlin","wer":"geheim"}' },
+            },
+          ],
+        },
+      ],
+    };
+
+    transformTexts(body, 'openai', (t) => t.toUpperCase());
+
+    const tc = (body.messages[0] as Record<string, any>).tool_calls[0];
+    // Strukturelle Bezeichner bleiben unverändert (sonst bräche Tool-Calling).
+    expect(tc.id).toBe('call_1');
+    expect(tc.type).toBe('function');
+    expect(tc.function.name).toBe('suche');
+    // arguments wird als JSON geparst, die Werte bereinigt und re-serialisiert.
+    const args = JSON.parse(tc.function.arguments);
+    expect(args.ort).toBe('BERLIN');
+    expect(args.wer).toBe('GEHEIM');
+  });
+
+  it('bereinigt Anthropic tool_use.input rekursiv; Name/ID bleiben', () => {
+    const body = {
+      messages: [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', id: 'tu_1', name: 'lookup', input: { kunde: 'geheim', ort: 'Berlin' } },
+          ],
+        },
+      ],
+    };
+
+    transformTexts(body, 'anthropic', (t) => t.toUpperCase());
+
+    const block = (body.messages[0].content as Array<Record<string, any>>)[0];
+    expect(block.name).toBe('lookup');
+    expect(block.id).toBe('tu_1');
+    expect(block.input.kunde).toBe('GEHEIM');
+    expect(block.input.ort).toBe('BERLIN');
+  });
+
+  it('bereinigt Anthropic tool_result.content; tool_use_id bleibt', () => {
+    const body = {
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'Ergebnis für geheim' }],
+        },
+      ],
+    };
+
+    transformTexts(body, 'anthropic', (t) => t.toUpperCase());
+
+    const block = (body.messages[0].content as Array<Record<string, any>>)[0];
+    expect(block.tool_use_id).toBe('tu_1');
+    expect(block.content).toBe('ERGEBNIS FÜR GEHEIM');
   });
 
   it('wirft nicht bei null-Body oder Nicht-Objekten', () => {

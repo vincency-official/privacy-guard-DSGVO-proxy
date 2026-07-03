@@ -1,82 +1,112 @@
-// Provider-spezifische Textextraktion aus dem Anfrage-Body.
+// Bereinigung der Textinhalte eines Anfrage-Bodys — fail-safe und provider-übergreifend.
 //
-// Verschiedene Provider legen den zu bereinigenden Klartext an unterschiedlichen
-// Stellen des JSON-Bodys ab. transformTexts läuft über genau diese Textfelder und
-// wendet eine Funktion in-place an — der Body wird direkt mutiert, Nicht-Textfelder
-// (z. B. Bild-Teile, Modell-Name, Rollen) bleiben unangetastet. Die eigentliche
-// Ersetzungslogik (echt → Token) steckt in der übergebenen Funktion, sodass dieses
-// Modul provider-agnostisch bleibt. Nur Node-Built-ins, keine externen Dependencies.
+// Früher lief transformTexts über eine schmale Positiv-Liste (nur messages[].content
+// und Anthropic-system). Das ließ PII in providerspezifischen Feldern unbemerkt im
+// Klartext durch — insbesondere Function-/Tool-Calling: OpenAI
+// tool_calls[].function.arguments, Anthropic tool_use.input und tool_result.content.
+//
+// Jetzt wird — symmetrisch zur Re-Identifikation (reidentify.ts walkAndReidentify) —
+// der GESAMTE Body rekursiv durchlaufen und JEDER String-Wert über fn bereinigt.
+// Das ist die sichere Grundhaltung: neue oder unbekannte Felder werden automatisch
+// erfasst statt durchzurutschen. fn selbst ersetzt ohnehin nur erkannte PII, sodass
+// gewöhnliche Inhalte ohne Treffer unverändert bleiben.
+//
+// Ausgenommen sind nur STRUKTURELLE Schlüssel, deren Werte reine Bezeichner/Enums
+// sind und die die API zerbrechen würden, wenn man sie tokenisierte (role, type,
+// model, Tool-/Funktionsnamen, IDs, URLs). Nur Node-Built-ins, keine externen
+// Dependencies.
 
 import type { Provider } from './types.js';
 
-// Wendet die Transformationsfunktion `fn` auf alle relevanten Textfelder des
-// Bodys an. Für OpenAI sind das alle `messages[].content` (String oder Array mit
-// `{type:'text', text}`-Teilen). Für Anthropic zusätzlich das `system`-Feld
-// (String oder Array). Der Body wird in-place mutiert.
+// Schlüssel, deren String-Werte NICHT bereinigt werden: reine Bezeichner/Enums
+// bzw. Werte, die zum Provider passen müssen (Tool-/Funktionsnamen, IDs, URLs,
+// Bild-Detailstufe, Medientyp, Encoding, Abbruchgründe).
+const STRUKTUR_SCHLUESSEL = new Set<string>([
+  'role',
+  'type',
+  'model',
+  'name',
+  'id',
+  'tool_call_id',
+  'tool_use_id',
+  'index',
+  'url',
+  'detail',
+  'media_type',
+  'encoding_format',
+  'object',
+  'finish_reason',
+  'stop_reason',
+]);
+
+// Schlüssel, deren String-Wert selbst serialisiertes JSON enthält (z. B. OpenAI
+// Function-Calling-Argumente). Solche Werte werden geparst, rekursiv bereinigt und
+// wieder serialisiert, damit darin enthaltene PII ebenfalls tokenisiert wird.
+const JSON_STRING_SCHLUESSEL = new Set<string>(['arguments']);
+
+// Bereinigt alle relevanten Textstellen des Bodys in-place. Der provider-Parameter
+// bleibt aus Kompatibilitätsgründen Teil der Signatur; die Bereinigung ist bewusst
+// provider-agnostisch (fail-safe für beide Formate).
 export function transformTexts(
   body: unknown,
-  provider: Provider,
+  _provider: Provider,
   fn: (text: string) => string,
 ): void {
-  // Nur echte Objekte verarbeiten; alles andere (null, String, Zahl) ignorieren.
-  if (!isRecord(body)) {
+  walk(body, fn);
+}
+
+// Läuft rekursiv durch Arrays und Objekte und wendet fn auf jeden String-Wert an —
+// außer bei strukturellen Schlüsseln. Objekt-Schlüssel selbst bleiben unangetastet.
+function walk(value: unknown, fn: (text: string) => string): void {
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      const element = value[i];
+      if (typeof element === 'string') {
+        // String direkt in einem Array (z. B. Anthropic tool_result.content als
+        // String-Liste): Inhalt, also bereinigen.
+        value[i] = fn(element);
+      } else {
+        walk(element, fn);
+      }
+    }
     return;
   }
 
-  // messages[].content bei beiden Providern bereinigen.
-  transformMessages(body.messages, fn);
-
-  // Anthropic legt den System-Prompt in einem eigenen Top-Level-Feld ab.
-  if (provider === 'anthropic') {
-    if (typeof body.system === 'string') {
-      body.system = fn(body.system);
-    } else {
-      transformContentParts(body.system, fn);
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    for (const key of Object.keys(record)) {
+      const feld = record[key];
+      if (typeof feld === 'string') {
+        if (STRUKTUR_SCHLUESSEL.has(key)) {
+          // Struktureller Bezeichner/Enum: unangetastet lassen.
+          continue;
+        }
+        if (JSON_STRING_SCHLUESSEL.has(key)) {
+          record[key] = sanitizeJsonString(feld, fn);
+        } else {
+          record[key] = fn(feld);
+        }
+      } else {
+        walk(feld, fn);
+      }
     }
   }
 }
 
-// Läuft über ein messages-Array und bereinigt jeweils das content-Feld. Ist
-// messages kein Array, passiert nichts.
-function transformMessages(
-  messages: unknown,
-  fn: (text: string) => string,
-): void {
-  if (!Array.isArray(messages)) {
-    return;
+// Bereinigt einen String, der serialisiertes JSON enthält: parsen, rekursiv
+// bereinigen, re-serialisieren. Ist der Inhalt kein JSON-Objekt/-Array (kaputt oder
+// ein JSON-Primitive), wird er ersatzweise direkt als Text bereinigt — so bleibt
+// auch dann fail-safe, dass PII darin tokenisiert wird.
+function sanitizeJsonString(rohes: string, fn: (text: string) => string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rohes);
+  } catch {
+    return fn(rohes);
   }
-  for (const message of messages) {
-    if (!isRecord(message)) {
-      continue;
-    }
-    if (typeof message.content === 'string') {
-      // Einfacher Fall: content ist direkt der Text.
-      message.content = fn(message.content);
-    } else {
-      // Multimodaler Fall: content ist ein Array aus typisierten Teilen.
-      transformContentParts(message.content, fn);
-    }
+  if (parsed !== null && typeof parsed === 'object') {
+    walk(parsed, fn);
+    return JSON.stringify(parsed);
   }
-}
-
-// Bereinigt ein Array aus Content-Teilen: nur Teile mit `type:'text'` und einem
-// String-Feld `text` werden transformiert; alle anderen Teile (Bilder, Tool-Aufrufe
-// usw.) bleiben unangetastet.
-function transformContentParts(
-  parts: unknown,
-  fn: (text: string) => string,
-): void {
-  if (!Array.isArray(parts)) {
-    return;
-  }
-  for (const part of parts) {
-    if (isRecord(part) && part.type === 'text' && typeof part.text === 'string') {
-      part.text = fn(part.text);
-    }
-  }
-}
-
-// Type-Guard: prüft auf ein echtes, nicht-Array-Objekt (Record).
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return fn(rohes);
 }

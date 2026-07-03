@@ -1,36 +1,136 @@
-# Privacy-Guard Proxy
+# 🛡️ Privacy-Guard Proxy
 
-> **Status: in Arbeit.** Lokaler DSGVO-Reverse-Proxy für KI-Anfragen. Diese README wird während der Umsetzung schrittweise vervollständigt.
+**Das lokale DSGVO-Gateway für die Arbeit mit US-KI-Modellen.**
 
-Ein lokaler Reverse-Proxy in Node.js/TypeScript, der personenbezogene Daten (PII)
-und Secrets in ausgehenden KI-Anfragen (OpenAI, Anthropic) durch Platzhalter-Tokens
-ersetzt und die Antwort des Providers wieder re-identifiziert. Per Datei-Toggle
-abschaltbar, mit Web-Dashboard und Live-Log.
+Ein minimaler lokaler Reverse-Proxy in Node.js/TypeScript. Jede Anfrage deiner IDE
+oder CLI an OpenAI oder Anthropic läuft zuerst durch diesen Proxy. Er ersetzt
+personenbezogene Daten (Namen, E-Mails) und Secrets (API-Keys) durch anonyme Tokens
+(z. B. `[PERSON_1]`), schickt nur den bereinigten Prompt an den US-Server und setzt
+in der Antwort die echten Daten lokal wieder ein (Re-Identifikation). Per Mausklick
+im Dashboard abschaltbar.
+
+```
+   IDE / CLI  ──▶  127.0.0.1  ──▶  Sanitizer (echt→Token)  ──▶  api.openai.com
+   (Base-URL)                                                     api.anthropic.com
+   IDE / CLI  ◀──  Re-Identifier (Token→echt) ◀── Streaming ◀───  (US-Antwort)
+```
 
 ## Grundprinzipien
 
 - **Keine externen Laufzeit-Abhängigkeiten** — ausschließlich Node-Built-ins.
 - Der Server bindet **nur an `127.0.0.1`**, niemals an `0.0.0.0`.
-- Klartext-PII wird **nie** geloggt oder auf Platte geschrieben; der Vault
-  (echt ↔ Token) existiert ausschließlich im Arbeitsspeicher.
-- **Fail-closed**: Kann eine Anfrage im aktiven Modus nicht bereinigt werden,
-  wird sie blockiert statt ungeschützt weitergeleitet.
+- Klartext-PII wird **nie** geloggt oder auf Platte geschrieben; die Zuordnung
+  echt ↔ Token (der „Vault") lebt ausschließlich im Arbeitsspeicher und ist bei
+  jedem Neustart weg.
+- **Fail-closed**: Kann eine Anfrage im aktiven Modus nicht sauber bereinigt werden,
+  wird sie mit HTTP 400 blockiert statt ungeschützt weitergeleitet.
+- Der echte API-Key im `Authorization`-/`x-api-key`-Header wird durchgereicht
+  (er muss zum Provider); ersetzt werden nur Keys/Secrets, die im **Prompt-Text**
+  auftauchen.
 
 ## Voraussetzungen
 
 - Node.js ≥ 20 (getestet mit v22).
 
+## Installation & Start
+
+```bash
+npm install
+npm run build
+node dist/cli.js start
+```
+
+Oder im Entwicklungsmodus ohne Build:
+
+```bash
+npm install
+npm run dev -- start        # entspricht: tsx src/cli.ts start
+```
+
+Beim Start lauschen zwei lokale Server:
+
+- **Proxy**: `http://127.0.0.1:8080`
+- **Dashboard**: `http://127.0.0.1:8081`
+
+## IDE / CLI anbinden (Base-URL umlenken)
+
+Statt direkt auf die US-API zeigst du dein Tool auf den lokalen Proxy. Der Pfad
+entscheidet über den Upstream: `/openai/...` → OpenAI, `/anthropic/...` → Anthropic.
+
+| Tool | Einstellung |
+|------|-------------|
+| OpenAI-SDK / kompatible CLIs | `OPENAI_BASE_URL=http://127.0.0.1:8080/openai/v1` |
+| Anthropic-SDK | `ANTHROPIC_BASE_URL=http://127.0.0.1:8080/anthropic` |
+| Aider | `--openai-api-base http://127.0.0.1:8080/openai/v1` |
+| Continue / Cursor | Base-URL des Providers auf obige URL setzen |
+
+Der API-Key wird wie gewohnt gesetzt — er wird unverändert an den echten Provider
+durchgereicht.
+
+## Ein- und Ausschalten (Toggle)
+
+Der Schutz wird über eine einzelne Marker-Datei `.privacy-disabled` im
+Arbeitsverzeichnis gesteuert:
+
+- **Datei fehlt** → Schutz **aktiv** (Daten werden tokenisiert).
+- **Datei existiert** → **Pass-Through** (alles wird ungefiltert durchgeleitet).
+
+Umschalten per Mausklick im **Dashboard** (`http://127.0.0.1:8081`) — dort siehst du
+zusätzlich ein Live-Log aller Ersetzungen (nur maskierte Werte). Oder per CLI:
+
+```bash
+node dist/cli.js on       # Schutz an  (Marker-Datei löschen)
+node dist/cli.js off      # Schutz aus (Pass-Through)
+node dist/cli.js status   # aktuellen Zustand anzeigen
+```
+
+## Konfiguration: `privacy-rules.json`
+
+Liegt im Arbeitsverzeichnis; als Vorlage dient `privacy-rules.example.json`. Fehlt
+die Datei, gelten sichere Defaults (leere Regeln, alle Detektoren an, Ports 8080/8081).
+
+```json
+{
+  "rules": [
+    { "match": "Max Mustermann", "type": "PERSON" },
+    { "match": "ACME GmbH", "type": "ORG" }
+  ],
+  "detectors": {
+    "email": true,
+    "iban": true,
+    "creditCard": true,
+    "ipAddress": true,
+    "secrets": true
+  },
+  "server": { "port": 8080, "dashboardPort": 8081 }
+}
+```
+
+- **`rules`** — explizite Werte, die du selbst pflegst (Namen, Firmen, Kunden,
+  interne Projektnamen). Jede Regel hat einen `type` (`PERSON`, `ORG`, `EMAIL`,
+  `IBAN`, `CREDIT_CARD`, `IP`, `SECRET`).
+- **`detectors`** — eingebaute Muster-Erkennung, einzeln an-/abschaltbar:
+  E-Mail, IBAN, Kreditkarte, IP-Adresse und bekannte Secret-Formate
+  (`sk-…`, `ghp_…`, `AKIA…` u. a.).
+- **`server`** — Ports für Proxy und Dashboard.
+
 ## Entwicklung
 
 ```bash
-npm install      # Dev-Abhängigkeiten installieren
-npm test         # Testsuite (Vitest) ausführen
-npm run build    # TypeScript nach dist/ kompilieren
-npm run dev      # CLI im Entwicklungsmodus (tsx) starten
+npm test          # Testsuite (Vitest)
+npm run test:watch
+npm run build     # TypeScript nach dist/
 ```
 
-## Konfiguration
+## Umfang & Grenzen (v1)
 
-Die Regeln und Detektoren werden in `privacy-rules.json` im Projektverzeichnis
-konfiguriert. Als Vorlage dient `privacy-rules.example.json`. Details folgen,
-sobald die entsprechenden Komponenten umgesetzt sind.
+**Enthalten:** Base-URL-Reverse-Proxy für OpenAI und Anthropic, Regel- und
+Muster-Erkennung, In-Memory-Vault, stream-sichere Re-Identifikation (SSE),
+Datei-Toggle, Web-Dashboard mit Live-Log, CLI.
+
+**Bewusst nicht enthalten (später):** HTTPS-MITM-Modus (für Tools ohne
+konfigurierbare Base-URL), ML-/NER-Namenserkennung, IDE-Extensions, Persistenz.
+
+## Lizenz
+
+Noch festzulegen.

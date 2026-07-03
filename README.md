@@ -2,6 +2,11 @@
 
 **Das lokale DSGVO-Gateway für die Arbeit mit US-KI-Modellen.**
 
+![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
+![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)
+![Runtime-Dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen.svg)
+
 Ein minimaler lokaler Reverse-Proxy in Node.js/TypeScript. Jede Anfrage deiner IDE
 oder CLI an OpenAI oder Anthropic läuft zuerst durch diesen Proxy. Er ersetzt
 personenbezogene Daten (Namen, E-Mails) und Secrets (API-Keys) durch anonyme Tokens
@@ -131,6 +136,26 @@ Datei-Toggle, Web-Dashboard mit Live-Log, CLI.
 **Bewusst nicht enthalten (später):** HTTPS-MITM-Modus (für Tools ohne
 konfigurierbare Base-URL), ML-/NER-Namenserkennung, IDE-Extensions, Persistenz.
 
+## Mitwirken
+
+Beiträge sind willkommen. Bitte:
+
+1. Ein Issue eröffnen, um größere Änderungen vorab abzustimmen.
+2. Für Pull Requests: `npm test` muss grün sein und `npm run build` sauber durchlaufen.
+3. Neue Erkennungs-/Sanitize-Logik immer mit Tests absichern (das Projekt arbeitet
+   testgetrieben; es gibt Regressionstests, die u. a. exakte Match-Grenzen festnageln).
+4. Code-Stil folgt dem Bestehenden: fokussierte Module, deutsche Kommentare mit echten
+   Umlauten, keine externen Laufzeit-Abhängigkeiten.
+
+## Haftungsausschluss
+
+Dieses Werkzeug bietet eine **best-effort**-Filterung personenbezogener Daten und Secrets
+auf Basis von Regeln und Mustern. Es ist **keine Garantie** für Vollständigkeit und **keine
+Rechtsberatung** und ersetzt keine datenschutzrechtliche Prüfung. Regeln und Detektoren
+können Daten übersehen (oder zu viel erfassen). Prüfe in sensiblen Kontexten selbst, was
+tatsächlich übertragen wird — das Live-Dashboard hilft dabei. Nutzung auf eigenes Risiko;
+es gilt der Gewährleistungsausschluss der MIT-Lizenz.
+
 ## Lizenz
 
-Noch festzulegen.
+MIT — siehe [LICENSE](LICENSE). © 2026 Michael Kaiser.

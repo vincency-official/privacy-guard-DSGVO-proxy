@@ -172,3 +172,47 @@ In-Memory-Vault, Streaming-Re-Identifikation, Toggle-Datei, Web-Dashboard mit Li
 
 **Draußen (später):** HTTPS-MITM-Modus, ML-/NER-Erkennung, IDE-Extensions, Persistenz,
 Multi-User.
+
+## 13. Nachtrag (2026-07-03): Audit-Fixes
+
+Nach der Umsetzung wurde die finalisierte Implementierung mehrperspektivisch auditiert
+(fünf Linsen, jedes Finding adversarisch am Code verifiziert). Neun bestätigte Findings
+wurden behoben. Die wichtigste **Design-Änderung** betrifft den Sanitizer:
+
+### Sanitize-Ansatz v2: fail-safe rekursiv statt Positiv-Liste
+
+Die Abschnitte 4–5 beschreiben eine **provider-spezifische Positiv-Liste** von Textfeldern
+(`messages[].content`, bei Anthropic zusätzlich `system`). Das Audit zeigte, dass damit PII
+durch nicht abgedeckte Felder im Klartext an die US-Provider floss — insbesondere beim
+Function-/Tool-Calling (OpenAI `tool_calls[].function.arguments`, Anthropic `tool_use.input`
+und `tool_result.content`).
+
+`transformTexts` (in `src/providers.ts`) läuft daher jetzt **rekursiv über alle String-
+Blätter** des Anfrage-Bodys — symmetrisch zur Re-Identifikation (`reidentify.ts`,
+`walkAndReidentify`). Grundhaltung ist „im Zweifel bereinigen":
+
+- Bereinigt werden **alle** String-Werte. Ausgenommen sind nur **strukturelle Schlüssel**,
+  deren Werte reine Bezeichner/Enums sind und die die API zerbrechen würden (`role`, `type`,
+  `model`, `name`, IDs, `url`, `media_type` …).
+- JSON-String-Felder (`arguments`) werden geparst, rekursiv bereinigt und re-serialisiert.
+- Die Ersetzungsfunktion tokenisiert ohnehin nur erkannte PII, sodass gewöhnliche
+  Struktur-Strings ohne Treffer unverändert bleiben.
+
+### Weitere Härtung (Zusammenfassung)
+
+- **Detektoren:** IBAN-/Kreditkarten-Regex an Wortgrenzen verankert (kein Verschlucken von
+  Folgewörtern/Trennzeichen); IBAN auf Großbuchstaben beschränkt (ISO 13616).
+- **Dashboard:** CSRF-/Herkunftsschutz für `POST /api/toggle` (Sec-Fetch-Site + Origin↔Host);
+  Log-Rendering per `textContent` statt `innerHTML` (DOM-XSS).
+- **Proxy:** Upstream-Header auf **Allowlist** beschränkt (keine Cookies/internen Header an
+  US-Provider); Query-String aus dem geloggten Pfad entfernt; nicht abgedeckte Endpunkte
+  werden im Log mit Warnung markiert (Abschnitt 9).
+- **Streaming:** Head-of-Line-Blocking im Re-Identify-Transform behoben (nur echte
+  Token-Präfixe werden zurückgehalten, Puffer gedeckelt).
+- **Qualität:** dupliziertes `maskValue()` konsolidiert (kanonisch in `events.ts`).
+
+### Bewusste Abweichung von der Projektstruktur (Abschnitt 11)
+
+Die Dashboard-Oberfläche liegt als `src/dashboard/ui.ts` (exportierte HTML-Konstante) statt
+als `ui.html` vor, damit sie den `tsc`-Build ohne zusätzliches Kopier-Tooling übersteht und
+im gebauten `privacy-guard`-Binary verfügbar ist.

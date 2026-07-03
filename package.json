@@ -1,11 +1,17 @@
 {
   "name": "privacy-guard-proxy",
   "version": "0.1.0",
-  "description": "Lokaler DSGVO-Reverse-Proxy, der PII/Secrets in KI-Anfragen tokenisiert und Antworten re-identifiziert.",
+  "description": "Lokaler DSGVO-Reverse-Proxy, der PII/Secrets in KI-Anfragen (OpenAI, Anthropic) tokenisiert und Antworten lokal re-identifiziert.",
   "type": "module",
   "bin": {
     "privacy-guard": "dist/cli.js"
   },
+  "files": [
+    "dist",
+    "privacy-rules.example.json",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -13,8 +19,31 @@
     "dev": "tsx src/cli.ts",
     "build": "tsc",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
   },
+  "keywords": [
+    "dsgvo",
+    "gdpr",
+    "privacy",
+    "pii",
+    "anonymization",
+    "reverse-proxy",
+    "llm",
+    "openai",
+    "anthropic",
+    "data-protection"
+  ],
+  "author": "Michael Kaiser (https://github.com/mixxan05)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mixxan05/privacy-guard-DSGVO-proxy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mixxan05/privacy-guard-DSGVO-proxy/issues"
+  },
+  "homepage": "https://github.com/mixxan05/privacy-guard-DSGVO-proxy#readme",
   "devDependencies": {
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",

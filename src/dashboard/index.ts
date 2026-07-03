@@ -38,6 +38,12 @@ export function createDashboardServer(toggle: Toggle): Server {
     }
 
     if (method === 'POST' && url === '/api/toggle') {
+      // CSRF-/Herkunftsschutz: das Umschalten ist die sicherheitskritischste
+      // Operation. Eine fremde Herkunft (z. B. bösartige Webseite) wird abgelehnt.
+      if (!istHerkunftOk(req)) {
+        sendeJson(res, 403, { error: 'Ungültige Herkunft (CSRF-Schutz).' });
+        return;
+      }
       // Umschalten: ist der Schutz aus (disabled), wieder anschalten — sonst aus.
       if (toggle.isDisabled()) {
         toggle.enable();
@@ -55,6 +61,34 @@ export function createDashboardServer(toggle: Toggle): Server {
 
     sendeJson(res, 404, { error: 'Unbekannte Dashboard-Route.' });
   });
+}
+
+// CSRF-/Herkunftsschutz für zustandsändernde Requests. Blockiert den realistischen
+// Angriffsvektor, dass eine beliebige Webseite im Browser des Nutzers per
+// fetch('http://127.0.0.1:<port>/api/toggle', {method:'POST'}) den Schutz heimlich
+// abschaltet.
+//
+// - Sec-Fetch-Site senden moderne Browser bei jedem Request automatisch mit; ein
+//   Cross-Site-/Same-Site-Zugriff wird abgelehnt — nur 'same-origin' (und das
+//   navigationsartige 'none') sind erlaubt. Nicht-Browser-Clients (CLI, curl,
+//   Node) senden den Header nicht; für sie greift die 127.0.0.1-Bindung.
+// - Zusätzlich: ist ein echter Origin-Header gesetzt, muss er zum Dashboard-Host
+//   passen (Defense-in-Depth für Browser, die Origin, aber kein Sec-Fetch-Site
+//   mitschicken). Ein opaker Origin ('null') und ein fehlender Origin gelten als
+//   nicht-cross-site und werden über Sec-Fetch-Site geregelt.
+function istHerkunftOk(req: IncomingMessage): boolean {
+  const site = req.headers['sec-fetch-site'];
+  if (typeof site === 'string' && site !== 'same-origin' && site !== 'none') {
+    return false;
+  }
+  const origin = req.headers['origin'];
+  const host = req.headers['host'];
+  if (typeof origin === 'string' && origin !== 'null' && typeof host === 'string') {
+    if (origin !== `http://${host}` && origin !== `https://${host}`) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // Startet einen Server-Sent-Events-Stream und leitet jeden Log-Eintrag als

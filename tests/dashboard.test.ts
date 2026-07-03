@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
-import type { Server } from 'node:http';
+import { request as httpRequest, type Server } from 'node:http';
 import { createDashboardServer } from '../src/dashboard/index.js';
 import { Toggle } from '../src/toggle.js';
 
@@ -15,6 +15,26 @@ let tempDir: string;
 let togglePfad: string;
 let server: Server;
 let basis: string;
+let port: number;
+
+// Roher HTTP-POST, mit dem sich beliebige (auch "forbidden") Header wie Origin
+// und Sec-Fetch-Site setzen lassen — fetch() würde diese stillschweigend strippen.
+function postRaw(
+  pfad: string,
+  headers: Record<string, string>,
+): Promise<{ status: number }> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      { host: '127.0.0.1', port, path: pfad, method: 'POST', headers },
+      (res) => {
+        res.on('data', () => {});
+        res.on('end', () => resolve({ status: res.statusCode ?? 0 }));
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
 
 beforeEach(async () => {
   tempDir = mkdtempSync(join(tmpdir(), 'pg-dash-'));
@@ -22,7 +42,7 @@ beforeEach(async () => {
   const toggle = new Toggle(togglePfad);
   server = createDashboardServer(toggle);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const port = (server.address() as AddressInfo).port;
+  port = (server.address() as AddressInfo).port;
   basis = `http://127.0.0.1:${port}`;
 });
 
@@ -63,5 +83,24 @@ describe('Dashboard-Server', () => {
   test('unbekannte Route liefert 404', async () => {
     const r = await fetch(`${basis}/gibtsnicht`);
     expect(r.status).toBe(404);
+  });
+
+  test('POST /api/toggle mit Cross-Site-Herkunft wird abgelehnt (CSRF-Schutz)', async () => {
+    const r = await postRaw('/api/toggle', { 'sec-fetch-site': 'cross-site' });
+    expect(r.status).toBe(403);
+    // Zustand unverändert — der Schutz wurde NICHT abgeschaltet.
+    expect(existsSync(togglePfad)).toBe(false);
+  });
+
+  test('POST /api/toggle mit fremdem Origin wird abgelehnt', async () => {
+    const r = await postRaw('/api/toggle', { origin: 'http://evil.example' });
+    expect(r.status).toBe(403);
+    expect(existsSync(togglePfad)).toBe(false);
+  });
+
+  test('POST /api/toggle mit same-origin (Sec-Fetch-Site) wird zugelassen', async () => {
+    const r = await postRaw('/api/toggle', { 'sec-fetch-site': 'same-origin' });
+    expect(r.status).toBe(200);
+    expect(existsSync(togglePfad)).toBe(true);
   });
 });

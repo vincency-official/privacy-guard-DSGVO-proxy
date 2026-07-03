@@ -31,21 +31,27 @@ export function buildDetectors(cfg: DetectorConfig): Detector[] {
   }
 
   if (cfg.iban) {
-    // IBAN: zwei Länder-Buchstaben, zwei Prüfziffern, dann 11–30 alphanumerische
-    // Zeichen (optional durch Leerzeichen gruppiert). Länder-Code ist per
-    // Definition groß, daher bewusst kein i-Flag.
+    // IBAN: zwei Länder-Buchstaben, zwei Prüfziffern, dann entweder kompakt
+    // 11–30 Zeichen ODER in 4er-Gruppen (Space-getrennt). An Wortgrenzen (\b)
+    // verankert, damit kein Folgetext mitgefangen wird. Bewusst nur GROSS-
+    // buchstaben ([A-Z0-9], kein i-Flag): IBANs sind per ISO 13616 uppercase —
+    // das verhindert zugleich, dass leerzeichengetrennte Kleinbuchstaben-Wörter
+    // (z. B. "... 3249 31 danke schoen") als IBAN-Gruppen verschluckt werden.
     detektoren.push({
       type: 'IBAN',
-      regex: /[A-Z]{2}\d{2}(?:[ ]?[A-Za-z0-9]){11,30}/g,
+      regex:
+        /\b[A-Z]{2}\d{2}(?:[A-Z0-9]{11,30}\b|(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,3})?\b)/g,
     });
   }
 
   if (cfg.creditCard) {
     // Kreditkarte: 13–19 Ziffern, optional durch Leerzeichen oder Bindestriche
-    // getrennt. Reine Formatprüfung (Luhn kann später ergänzt werden).
+    // getrennt. Struktur "Ziffer, dann 12–18× (optionaler Separator + Ziffer)",
+    // damit die LETZTE Gruppe keinen nachlaufenden Separator mitfängt.
+    // Reine Formatprüfung (Luhn kann später ergänzt werden).
     detektoren.push({
       type: 'CREDIT_CARD',
-      regex: /\b(?:\d[ -]?){13,19}\b/g,
+      regex: /\b\d(?:[ -]?\d){12,18}\b/g,
     });
   }
 

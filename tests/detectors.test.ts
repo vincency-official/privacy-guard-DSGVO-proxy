@@ -104,6 +104,20 @@ describe('IBAN-Detektor', () => {
   it('erkennt einen zu kurzen IBAN-Fragment nicht', () => {
     expect(trifft(regex, 'nur DE44 ohne Rest')).toBe(false);
   });
+
+  it('fängt keine nachfolgenden Wörter mit in den Treffer (exakte Grenze)', () => {
+    const treffer = new RegExp(regex.source, regex.flags).exec(
+      'Ueberweise auf DE44 5001 0517 5407 3249 31 danke schoen',
+    );
+    expect(treffer?.[0]).toBe('DE44 5001 0517 5407 3249 31');
+  });
+
+  it('erkennt auch die kompakte (ungruppierte) IBAN ohne Folgetext', () => {
+    const treffer = new RegExp(regex.source, regex.flags).exec(
+      'IBAN DE44500105175407324931 bitte pruefen',
+    );
+    expect(treffer?.[0]).toBe('DE44500105175407324931');
+  });
 });
 
 describe('CREDIT_CARD-Detektor', () => {
@@ -118,6 +132,18 @@ describe('CREDIT_CARD-Detektor', () => {
 
   it('erkennt eine viel zu kurze Ziffernfolge nicht', () => {
     expect(trifft(regex, 'PIN 1234')).toBe(false);
+  });
+
+  it('fängt kein nachfolgendes Trennzeichen mit in den Treffer', () => {
+    const mitSpace = new RegExp(regex.source, regex.flags).exec(
+      'Karte 4111 1111 1111 1111 fertig',
+    );
+    expect(mitSpace?.[0]).toBe('4111 1111 1111 1111');
+
+    const mitStrich = new RegExp(regex.source, regex.flags).exec(
+      'nr 4111-1111-1111-1111-ende',
+    );
+    expect(mitStrich?.[0]).toBe('4111-1111-1111-1111');
   });
 });
 

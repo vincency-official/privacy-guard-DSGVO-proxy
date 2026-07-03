@@ -191,6 +191,30 @@ describe('End-to-End Roundtrip', () => {
     expect(aktiv?.warning).toBeUndefined();
   });
 
+  test('loggt den Pfad ohne Query-String (keine PII/Injection im Log)', async () => {
+    const eintraege: LogEntry[] = [];
+    const zuhoerer = (e: LogEntry): void => {
+      eintraege.push(e);
+    };
+    logBus.on('log', zuhoerer);
+    try {
+      await fetch(
+        `${proxyBasis}/openai/v1/chat/completions?user=geheim@example.com`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: 'Bearer sk-test-123' },
+          body: CLIENT_BODY,
+        },
+      );
+    } finally {
+      logBus.off('log', zuhoerer);
+    }
+    const aktiv = eintraege.find((e) => e.mode === 'active');
+    expect(aktiv?.path).toBe('/openai/v1/chat/completions');
+    expect(aktiv?.path).not.toContain('@');
+    expect(aktiv?.path).not.toContain('?');
+  });
+
   test('Pass-Through: bei deaktiviertem Schutz sieht der Upstream den Klartext', async () => {
     // Marker-Datei anlegen → Pass-Through-Modus.
     writeFileSync(togglePfad, 'x', 'utf8');

@@ -63,6 +63,13 @@ const UPSTREAM_ALLOWLIST = new Set([
   'user-agent',
 ]);
 
+// Liefert den Request-Pfad OHNE Query-String für das Log. Der Query kann PII
+// (z. B. ?user=max@example.com) oder Injection-Payload enthalten und hätte im
+// Log bzw. im Dashboard nichts zu suchen.
+function logPfad(req: IncomingMessage): string {
+  return (req.url ?? '').split('?')[0];
+}
+
 // Bekannte, endpunktspezifisch unterstützte Pfade je Provider. Andere Endpunkte
 // (z. B. /v1/embeddings, /v1/files) werden weiterhin durchgeleitet und generisch
 // bereinigt, aber im Log als nicht abgedeckt markiert (Spec Abschnitt 9).
@@ -167,7 +174,7 @@ async function passThrough(
     timestamp: new Date().toISOString(),
     mode: 'passthrough',
     provider,
-    path: req.url ?? '',
+    path: logPfad(req),
     replacements: [],
   });
 
@@ -212,7 +219,7 @@ async function aktiveWeiterleitung(
     timestamp: new Date().toISOString(),
     mode: 'active',
     provider,
-    path: req.url ?? '',
+    path: logPfad(req),
     replacements,
     warning: warnung,
   });

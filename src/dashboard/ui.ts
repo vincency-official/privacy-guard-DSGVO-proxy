@@ -111,24 +111,47 @@ export const UI_HTML = `<!doctype html>
     try { return new Date(iso).toLocaleTimeString('de-DE'); } catch { return iso; }
   }
 
+  // Kleiner DOM-Helfer: erzeugt ein Element und setzt Text ausschließlich per
+  // textContent — nie per innerHTML. So können frei steuerbare Felder (path,
+  // provider, masked, warning) keinen HTML-/Script-Code einschleusen (DOM-XSS).
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined && text !== null) n.textContent = text;
+    return n;
+  }
+
   function anhaengen(e) {
     if (leer) { logEl.innerHTML = ''; leer = false; }
-    const div = document.createElement('div');
-    div.className = 'entry';
-    const modeCls = e.mode === 'active' ? 'mode-active' : 'mode-passthrough';
-    const modeTxt = e.mode === 'active' ? 'aktiv' : 'pass-through';
-    let chips = '';
+    var div = el('div', 'entry');
+
+    var meta = el('div', 'meta');
+    meta.appendChild(el('span', null, zeit(e.timestamp)));
+    var modeCls = e.mode === 'active' ? 'mode-active' : 'mode-passthrough';
+    meta.appendChild(el('span', modeCls, e.mode === 'active' ? 'aktiv' : 'pass-through'));
+    meta.appendChild(el('span', null, e.provider));
+    meta.appendChild(el('span', null, e.path));
+    div.appendChild(meta);
+
     if (e.replacements && e.replacements.length) {
-      chips = '<div class="chips">' + e.replacements.map(function (r) {
-        return '<span class="chip"><b>' + r.type + '</b> ' + r.masked + '</span>';
-      }).join('') + '</div>';
+      var chips = el('div', 'chips');
+      e.replacements.forEach(function (r) {
+        var chip = el('span', 'chip');
+        chip.appendChild(el('b', null, r.type));
+        chip.appendChild(document.createTextNode(' ' + r.masked));
+        chips.appendChild(chip);
+      });
+      div.appendChild(chips);
     } else if (e.mode === 'active') {
-      chips = '<div class="chips"><span class="empty">keine Treffer</span></div>';
+      var chips2 = el('div', 'chips');
+      chips2.appendChild(el('span', 'empty', 'keine Treffer'));
+      div.appendChild(chips2);
     }
-    var warnung = e.warning ? '<div class="warn">⚠ ' + e.warning + '</div>' : '';
-    div.innerHTML = '<div class="meta"><span>' + zeit(e.timestamp) + '</span>' +
-      '<span class="' + modeCls + '">' + modeTxt + '</span>' +
-      '<span>' + e.provider + '</span><span>' + e.path + '</span></div>' + chips + warnung;
+
+    if (e.warning) {
+      div.appendChild(el('div', 'warn', '⚠ ' + e.warning));
+    }
+
     logEl.prepend(div);
   }
 

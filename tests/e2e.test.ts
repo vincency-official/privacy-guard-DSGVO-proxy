@@ -13,7 +13,8 @@ import { join } from 'node:path';
 import { createProxyServer } from '../src/server.js';
 import { Vault } from '../src/vault.js';
 import { Toggle } from '../src/toggle.js';
-import type { Config } from '../src/types.js';
+import { logBus } from '../src/events.js';
+import type { Config, LogEntry } from '../src/types.js';
 
 function leseBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -149,6 +150,45 @@ describe('End-to-End Roundtrip', () => {
     expect(empfangeneHeaders['authorization']).toBe('Bearer sk-test-123');
     // ... ein beliebiger interner Client-Header wird verworfen.
     expect(empfangeneHeaders['x-internal-secret']).toBeUndefined();
+  });
+
+  test('markiert einen nicht abgedeckten Endpunkt mit einer Warnung im Log', async () => {
+    const eintraege: LogEntry[] = [];
+    const zuhoerer = (e: LogEntry): void => {
+      eintraege.push(e);
+    };
+    logBus.on('log', zuhoerer);
+    try {
+      await fetch(`${proxyBasis}/openai/v1/embeddings`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer sk-test-123' },
+        body: CLIENT_BODY,
+      });
+    } finally {
+      logBus.off('log', zuhoerer);
+    }
+    const aktiv = eintraege.find((e) => e.mode === 'active');
+    expect(aktiv?.warning).toBeTruthy();
+    expect(aktiv?.warning).toContain('embeddings');
+  });
+
+  test('setzt für einen abgedeckten Chat-Endpunkt keine Warnung', async () => {
+    const eintraege: LogEntry[] = [];
+    const zuhoerer = (e: LogEntry): void => {
+      eintraege.push(e);
+    };
+    logBus.on('log', zuhoerer);
+    try {
+      await fetch(`${proxyBasis}/openai/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer sk-test-123' },
+        body: CLIENT_BODY,
+      });
+    } finally {
+      logBus.off('log', zuhoerer);
+    }
+    const aktiv = eintraege.find((e) => e.mode === 'active');
+    expect(aktiv?.warning).toBeUndefined();
   });
 
   test('Pass-Through: bei deaktiviertem Schutz sieht der Upstream den Klartext', async () => {

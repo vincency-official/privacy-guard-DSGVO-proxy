@@ -60,10 +60,13 @@ export interface Replacement {
 }
 
 // Ein Log-Eintrag pro verarbeiteter Anfrage. Wird über den Event-Bus verteilt.
+// `warning` ist optional gesetzt, wenn beim Verarbeiten etwas Beachtenswertes
+// auffiel (z. B. ein nicht als Chat-Endpunkt bekannter Pfad).
 export interface LogEntry {
   timestamp: string;
   mode: 'active' | 'passthrough';
   provider: string;
   path: string;
   replacements: Replacement[];
+  warning?: string;
 }

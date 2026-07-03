@@ -63,6 +63,16 @@ const UPSTREAM_ALLOWLIST = new Set([
   'user-agent',
 ]);
 
+// Bekannte, endpunktspezifisch unterstützte Pfade je Provider. Andere Endpunkte
+// (z. B. /v1/embeddings, /v1/files) werden weiterhin durchgeleitet und generisch
+// bereinigt, aber im Log als nicht abgedeckt markiert (Spec Abschnitt 9).
+function istAbgedeckterEndpunkt(provider: Provider, pfad: string): boolean {
+  if (provider === 'openai') {
+    return pfad.startsWith('/v1/chat/completions');
+  }
+  return pfad.startsWith('/v1/messages'); // anthropic
+}
+
 // Erzeugt den Proxy-HTTP-Server. Die Netzwerk-Bindung (listen auf 127.0.0.1)
 // übernimmt der Aufrufer; dieser Kern kapselt nur die Request-Verarbeitung.
 export function createProxyServer(deps: ProxyDeps): Server {
@@ -189,6 +199,14 @@ async function aktiveWeiterleitung(
     body: alsBodyInit(sanitizedBody),
   });
 
+  // Nicht als Chat-Endpunkt bekannte Pfade werden weiterhin durchgeleitet (und
+  // durch den rekursiven Sanitizer generisch bereinigt), aber im Log markiert —
+  // so sieht der Nutzer, dass hier keine endpunktspezifische Prüfung griff.
+  const pfad = new URL(upstreamUrl).pathname;
+  const warnung = istAbgedeckterEndpunkt(provider, pfad)
+    ? undefined
+    : `Endpunkt "${pfad}" ist kein bekannter Chat-Endpunkt — Body wurde generisch bereinigt, aber nicht endpunktspezifisch geprüft.`;
+
   // Log: durchgeführte Ersetzungen (nur maskierte Werte).
   emitLog({
     timestamp: new Date().toISOString(),
@@ -196,6 +214,7 @@ async function aktiveWeiterleitung(
     provider,
     path: req.url ?? '',
     replacements,
+    warning: warnung,
   });
 
   const contentType = upstream.headers.get('content-type') ?? '';

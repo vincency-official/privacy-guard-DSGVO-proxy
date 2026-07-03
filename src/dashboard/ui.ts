@@ -48,6 +48,7 @@ export const UI_HTML = `<!doctype html>
   .chip { background: #1d2330; border: 1px solid #2c3444; border-radius: 6px; padding: 2px 8px; font-size: 12px; }
   .chip b { color: #8ab4ff; font-weight: 600; }
   .empty { color: #6b7280; font-style: italic; }
+  .warn { margin-top: 6px; color: #ffb454; font-size: 12.5px; }
 </style>
 </head>
 <body>
@@ -124,9 +125,10 @@ export const UI_HTML = `<!doctype html>
     } else if (e.mode === 'active') {
       chips = '<div class="chips"><span class="empty">keine Treffer</span></div>';
     }
+    var warnung = e.warning ? '<div class="warn">⚠ ' + e.warning + '</div>' : '';
     div.innerHTML = '<div class="meta"><span>' + zeit(e.timestamp) + '</span>' +
       '<span class="' + modeCls + '">' + modeTxt + '</span>' +
-      '<span>' + e.provider + '</span><span>' + e.path + '</span></div>' + chips;
+      '<span>' + e.provider + '</span><span>' + e.path + '</span></div>' + chips + warnung;
     logEl.prepend(div);
   }
 

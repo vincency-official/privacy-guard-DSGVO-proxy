@@ -145,4 +145,41 @@ describe('createReidentifyTransform', () => {
 
     expect(ausgabe).toBe('davor [UNBEKANNT_5] danach');
   });
+
+  it('gibt Fließtext nach einem "[" ohne schließende Klammer sofort aus (kein Head-of-Line-Blocking)', async () => {
+    const vault = new Vault();
+    const transform = createReidentifyTransform(vault);
+    const chunks: Buffer[] = [];
+    transform.on('data', (c: Buffer) => chunks.push(c));
+
+    // Ein "[" im Fließtext (danach ein Leerzeichen, kein Token-Zeichen) darf NICHT
+    // den gesamten Reststrom bis zum Stream-Ende zurückhalten.
+    transform.write(Buffer.from('Liste: [ Punkt eins, Punkt zwei ohne Klammer-zu', 'utf8'));
+    await new Promise((r) => setImmediate(r));
+
+    // Ohne end(): der Text muss bereits vollständig geflossen sein.
+    expect(Buffer.concat(chunks).toString('utf8')).toBe(
+      'Liste: [ Punkt eins, Punkt zwei ohne Klammer-zu',
+    );
+    transform.end();
+  });
+
+  it('hält einen echten Token-Präfix am Chunk-Ende zurück, bis er vollständig ist', async () => {
+    const vault = new Vault();
+    vault.tokenFor('Max', 'PERSON'); // [PERSON_1] → Max
+    const transform = createReidentifyTransform(vault);
+    const chunks: Buffer[] = [];
+    transform.on('data', (c: Buffer) => chunks.push(c));
+
+    transform.write(Buffer.from('Hallo [PER', 'utf8'));
+    await new Promise((r) => setImmediate(r));
+    // Der mögliche Token-Anfang "[PER" wird korrekt zurückgehalten.
+    expect(Buffer.concat(chunks).toString('utf8')).toBe('Hallo ');
+
+    await new Promise<void>((resolve) => {
+      transform.on('end', () => resolve());
+      transform.end(Buffer.from('SON_1]!', 'utf8'));
+    });
+    expect(Buffer.concat(chunks).toString('utf8')).toBe('Hallo Max!');
+  });
 });

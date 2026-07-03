@@ -16,6 +16,15 @@ import type { Vault } from './vault.js';
 // gefolgt von "_" und einer Zahl. Das "g"-Flag ersetzt alle Vorkommen.
 const TOKEN_REGEX = /\[[A-Z_]+_\d+\]/g;
 
+// Ein (möglicherweise noch unvollständiger) Token-Anfang: "[" gefolgt von nur
+// tokengültigen Zeichen ([A-Z0-9_]). Dient im Stream-Transform dazu, ein "[" im
+// Fließtext von einem echten Token-Präfix zu unterscheiden.
+const MOEGLICHER_TOKEN_PRAEFIX = /^\[[A-Z0-9_]*$/;
+
+// Obergrenze für einen zurückgehaltenen Token-Präfix. Echte [TYP_N]-Tokens sind
+// weit kürzer; die Grenze deckelt das Pufferwachstum zusätzlich ab.
+const MAX_TOKEN_LEN = 64;
+
 // Ersetzt alle [TYP_N]-Tokens im Text durch den zugehörigen Klartext aus dem
 // Vault. Ein unbekanntes Token (kein Eintrag im Vault) bleibt unverändert
 // stehen — so gehen fremde eckige Klammern im Modell-Output nicht verloren.
@@ -95,10 +104,20 @@ export function createReidentifyTransform(vault: Vault): Transform {
 
       // Bis zur letzten offenen "[" ohne folgendes "]" ist alles eindeutig und
       // damit sicher ersetzbar; ab dort könnte ein Token unvollständig sein.
+      //
+      // Aber: nur zurückhalten, wenn der Rest ab "[" überhaupt ein möglicher
+      // Präfix eines gültigen Tokens sein KANN (nach "[" nur [A-Z0-9_]) und die
+      // maximale Tokenlänge nicht überschreitet. Ein "[" im Fließtext (danach z. B.
+      // Leerzeichen, Kleinbuchstabe, "{") wird sofort freigegeben — sonst würde ein
+      // einzelnes "[" ohne späteres "]" den gesamten Reststrom bis zum Stream-Ende
+      // stauen (Head-of-Line-Blocking) und den Puffer unbegrenzt wachsen lassen.
       const lastOpen = buffer.lastIndexOf('[');
       let safeEnd = buffer.length;
       if (lastOpen !== -1 && buffer.indexOf(']', lastOpen) === -1) {
-        safeEnd = lastOpen;
+        const rest = buffer.slice(lastOpen);
+        if (rest.length <= MAX_TOKEN_LEN && MOEGLICHER_TOKEN_PRAEFIX.test(rest)) {
+          safeEnd = lastOpen;
+        }
       }
 
       const safe = buffer.slice(0, safeEnd);

@@ -14,6 +14,7 @@ import type { Vault } from './vault.js';
 import { findMatches } from './rules/engine.js';
 import { buildDetectors } from './rules/detectors.js';
 import { transformTexts } from './providers.js';
+import { maskValue } from './events.js';
 
 // Ersetzt alle übergebenen Treffer im Text durch ihre Tokens und liefert den
 // bereinigten Text plus die Liste der durchgeführten Ersetzungen.
@@ -85,38 +86,4 @@ export function sanitizeBody(
   });
 
   return alle;
-}
-
-// Maskiert einen Klartext-Wert für die Log-Anzeige, ohne ihn vollständig
-// preiszugeben.
-//
-// - E-Mail ("x@y"): erstes Zeichen des lokalen Teils sichtbar, Rest als "***",
-//   Domain bleibt sichtbar → z. B. "m***@gmx.de".
-// - Sonst: die ersten ein bis zwei Zeichen sichtbar, der Rest durch "*" ersetzt
-//   (Länge grob gewahrt, aber gedeckelt, um lange Werte nicht zu verraten).
-// - Werte mit höchstens zwei Zeichen: komplett maskiert.
-//
-// Hinweis: Dieselbe Maskierungssemantik wird in Task 9 als kanonisches
-// maskValue() im Event-Modul bereitgestellt; hier lokal gehalten, damit der
-// Sanitizer ohne Vorwärts-Abhängigkeit auf noch nicht existierende Module
-// auskommt.
-function maskValue(value: string): string {
-  const at = value.indexOf('@');
-  if (at > 0) {
-    const lokal = value.slice(0, at);
-    const domain = value.slice(at); // enthält das "@"
-    const ersterBuchstabe = lokal[0] ?? '';
-    return `${ersterBuchstabe}***${domain}`;
-  }
-
-  // Werte ≤ 2 Zeichen vollständig maskieren (keine sinnvolle Teil-Preisgabe).
-  if (value.length <= 2) {
-    return '*'.repeat(value.length);
-  }
-
-  // Erste zwei Zeichen sichtbar, Rest maskiert; Sternanzahl auf 8 deckeln,
-  // damit sehr lange Werte (z. B. Secrets) ihre Länge nicht verraten.
-  const sichtbar = value.slice(0, 2);
-  const sterne = '*'.repeat(Math.min(value.length - 2, 8));
-  return `${sichtbar}${sterne}`;
 }

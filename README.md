@@ -159,3 +159,5 @@ es gilt der Gewährleistungsausschluss der MIT-Lizenz.
 ## Lizenz
 
 MIT — siehe [LICENSE](LICENSE). © 2026 Michael Kaiser.
+
+[Vincency Digital Agency](https://vincency.com)
